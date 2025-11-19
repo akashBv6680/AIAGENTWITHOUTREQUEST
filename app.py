@@ -3,16 +3,12 @@ import requests
 import json
 import os
 
-# Gemini API Key from Streamlit secrets
+# --- Gemini API config ---
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-
-# Gemini 2.5 Flash endpoint
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/"
     "models/gemini-2.5-flash:generateContent"
 )
-
-# Local file for persistent conversation
 MEMORY_FILE = "conversation_memory.json"
 
 def load_memory():
@@ -34,12 +30,10 @@ def save_memory(memory):
         pass
 
 def generate_gemini_response(user_prompt, conversation):
-    # Construct context for Gemini model
     contents = []
-
     system_instruction = (
-        "You are a helpful AI agent in a Streamlit app. "
-        "You store and use previous conversations for context-aware replies."
+        "You are a proactive, helpful AI agent in a Streamlit app. When the user revisits, "
+        "you automatically analyze the previous conversation and suggest next steps, summaries, or related insights."
     )
     contents.append({
         "role": "user",
@@ -78,14 +72,10 @@ def generate_gemini_response(user_prompt, conversation):
     except Exception as e:
         return f"Parse error: {e}"
 
-# ---------------------
-# UI STARTS HERE
-# ---------------------
-
+# --- UI ---
 st.set_page_config(page_title="Gemini 2.5 Flash Agent", page_icon="🤖")
-st.title("Gemini 2.5 Flash – Persistent AI Agent")
+st.title("Gemini 2.5 Flash – Persistent, Proactive AI Agent")
 
-# Initialize session state vars
 if "conversation" not in st.session_state:
     st.session_state.conversation = load_memory()
 if "user_input" not in st.session_state:
@@ -93,9 +83,11 @@ if "user_input" not in st.session_state:
 if "user_input_widget" not in st.session_state:
     st.session_state.user_input_widget = ""
 
-st.caption("This agent loads your previous conversation and uses persistent memory from a JSON file.")
+st.caption(
+    "Your agent will automatically analyze prior conversation and proactively chat a related reply every time you enter or reload."
+)
 
-# Display previous conversation
+# --- Display previous chat ---
 if st.session_state.conversation:
     st.subheader("Previous conversation")
     for msg in st.session_state.conversation:
@@ -105,6 +97,26 @@ if st.session_state.conversation:
             st.markdown(f"**You:** {content}")
         else:
             st.markdown(f"**Agent:** {content}")
+
+    # --- Proactive agent reply on load ---
+    # Only trigger once per page visit
+    if "autoreply_done" not in st.session_state:
+        with st.spinner("Agent is reviewing your history..."):
+            last_user_message = ""
+            for msg in reversed(st.session_state.conversation):
+                if msg["role"] == "user":
+                    last_user_message = msg["content"]
+                    break
+            prompt = (
+                "Review the previous conversation and send a proactive reply: "
+                "either summarize, continue the last topic, suggest a next step, or connect it to a new idea. "
+                f"The last message from the user was: '{last_user_message}'."
+            )
+            reply = generate_gemini_response(prompt, st.session_state.conversation)
+            st.session_state.conversation.append({"role": "assistant", "content": reply})
+            save_memory(st.session_state.conversation)
+            st.markdown(f"**Agent:** {reply}")
+            st.session_state.autoreply_done = True
 else:
     st.info("No previous conversation found. Starting with a greeting.")
     greeting = (
@@ -116,7 +128,7 @@ else:
 
 st.divider()
 
-# Callback to copy text and clear widget input
+# --- Chat input widget ---
 def submit_message():
     st.session_state.user_input = st.session_state.user_input_widget
     st.session_state.user_input_widget = ""
@@ -143,17 +155,14 @@ if clear_clicked:
     st.success("Memory cleared. Reload the page to start fresh.")
     st.stop()
 
-# Send logic: process new input either on Button click or new input
 if (send_clicked or st.session_state.user_input) and st.session_state.user_input.strip():
     user_msg = st.session_state.user_input.strip()
     st.session_state.conversation.append({"role": "user", "content": user_msg})
-
     with st.spinner("Agent is thinking..."):
         reply = generate_gemini_response(user_msg, st.session_state.conversation)
-
     st.session_state.conversation.append({"role": "assistant", "content": reply})
     save_memory(st.session_state.conversation)
     st.markdown(f"**Agent:** {reply}")
-
-    # Reset input to avoid accidental repeat
     st.session_state.user_input = ""
+    # Allow auto-reply on next load
+    st.session_state.autoreply_done = False
