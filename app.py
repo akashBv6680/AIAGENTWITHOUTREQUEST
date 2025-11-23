@@ -3,6 +3,18 @@ import requests
 import json
 import os
 
+# --- Optional: CSS to help input sit at the bottom visually ---
+st.markdown("""
+    <style>
+    .block-container {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        min-height: 80vh;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- Gemini API config ---
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 GEMINI_API_URL = (
@@ -72,7 +84,7 @@ def generate_gemini_response(user_prompt, conversation):
     except Exception as e:
         return f"Parse error: {e}"
 
-# --- UI ---
+# -------- UI --------
 st.set_page_config(page_title="Gemini 2.5 Flash Agent", page_icon="🤖")
 st.title("Gemini 2.5 Flash – Persistent, Proactive AI Agent")
 
@@ -84,20 +96,16 @@ if "user_input_widget" not in st.session_state:
     st.session_state.user_input_widget = ""
 
 st.caption(
-    "Your agent automatically reviews the prior conversation and proactively sends related replies each time you enter or reload – without loops!"
+    "Your agent auto-reviews prior conversation and sends proactive, related replies each time you enter or reload – with chat input at the bottom."
 )
 
-# Only trigger a single autoreply if:
-# - There is past memory
-# - There is a user message
-# - The last message is NOT an agent auto-reply
-
+# --- Display previous chat ---
 def is_last_message_autoreply(conversation):
     if not conversation:
         return False
     last = conversation[-1]
     # Optionally, use your own signature here (e.g. by prefix, or content analysis)
-    # Here, we check if last agent message includes this phrase:
+    # Here, we check if last agent message contains this phrase:
     return (last["role"] == "assistant" and 
             "Now that we have a solid understanding" in last["content"])
 
@@ -140,38 +148,42 @@ else:
 
 st.divider()
 
-def submit_message():
-    st.session_state.user_input = st.session_state.user_input_widget
-    st.session_state.user_input_widget = ""
+# ------- CHAT INPUT AT PAGE BOTTOM -------
+chat_container = st.container()
+with chat_container:
+    def submit_message():
+        st.session_state.user_input = st.session_state.user_input_widget
+        st.session_state.user_input_widget = ""
 
-st.text_input(
-    "Your message",
-    key="user_input_widget",
-    on_change=submit_message,
-)
+    st.text_input(
+        "Your message",
+        key="user_input_widget",
+        on_change=submit_message,
+        placeholder="Type your message and press Enter...",
+    )
 
-col1, col2 = st.columns(2)
-with col1:
-    send_clicked = st.button("Send")
-with col2:
-    clear_clicked = st.button("Clear memory (file + session)")
+    col1, col2 = st.columns(2)
+    with col1:
+        send_clicked = st.button("Send")
+    with col2:
+        clear_clicked = st.button("Clear memory (file + session)")
 
-if clear_clicked:
-    st.session_state.conversation = []
-    if os.path.exists(MEMORY_FILE):
-        try:
-            os.remove(MEMORY_FILE)
-        except Exception:
-            pass
-    st.success("Memory cleared. Reload the page to start fresh.")
-    st.stop()
+    if clear_clicked:
+        st.session_state.conversation = []
+        if os.path.exists(MEMORY_FILE):
+            try:
+                os.remove(MEMORY_FILE)
+            except Exception:
+                pass
+        st.success("Memory cleared. Reload the page to start fresh.")
+        st.stop()
 
-if (send_clicked or st.session_state.user_input) and st.session_state.user_input.strip():
-    user_msg = st.session_state.user_input.strip()
-    st.session_state.conversation.append({"role": "user", "content": user_msg})
-    with st.spinner("Agent is thinking..."):
-        reply = generate_gemini_response(user_msg, st.session_state.conversation)
-    st.session_state.conversation.append({"role": "assistant", "content": reply})
-    save_memory(st.session_state.conversation)
-    st.markdown(f"**Agent:** {reply}")
-    st.session_state.user_input = ""
+    if (send_clicked or st.session_state.user_input) and st.session_state.user_input.strip():
+        user_msg = st.session_state.user_input.strip()
+        st.session_state.conversation.append({"role": "user", "content": user_msg})
+        with st.spinner("Agent is thinking..."):
+            reply = generate_gemini_response(user_msg, st.session_state.conversation)
+        st.session_state.conversation.append({"role": "assistant", "content": reply})
+        save_memory(st.session_state.conversation)
+        st.markdown(f"**Agent:** {reply}")
+        st.session_state.user_input = ""
