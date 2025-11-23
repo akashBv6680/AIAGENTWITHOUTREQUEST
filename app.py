@@ -32,8 +32,8 @@ def save_memory(memory):
 def generate_gemini_response(user_prompt, conversation):
     contents = []
     system_instruction = (
-        "You are a proactive, helpful AI agent in a Streamlit app. When the user revisits, "
-        "you automatically analyze the previous conversation and suggest next steps, summaries, or related insights."
+        "You are a proactive, helpful AI agent in a Streamlit app. "
+        "Analyze previous conversation and provide a summary, suggestion, or next topic."
     )
     contents.append({
         "role": "user",
@@ -84,10 +84,23 @@ if "user_input_widget" not in st.session_state:
     st.session_state.user_input_widget = ""
 
 st.caption(
-    "Your agent will automatically analyze prior conversation and proactively chat a related reply every time you enter or reload."
+    "Your agent automatically reviews the prior conversation and proactively sends related replies each time you enter or reload – without loops!"
 )
 
-# --- Display previous chat ---
+# Only trigger a single autoreply if:
+# - There is past memory
+# - There is a user message
+# - The last message is NOT an agent auto-reply
+
+def is_last_message_autoreply(conversation):
+    if not conversation:
+        return False
+    last = conversation[-1]
+    # Optionally, use your own signature here (e.g. by prefix, or content analysis)
+    # Here, we check if last agent message includes this phrase:
+    return (last["role"] == "assistant" and 
+            "Now that we have a solid understanding" in last["content"])
+
 if st.session_state.conversation:
     st.subheader("Previous conversation")
     for msg in st.session_state.conversation:
@@ -98,9 +111,8 @@ if st.session_state.conversation:
         else:
             st.markdown(f"**Agent:** {content}")
 
-    # --- Proactive agent reply on load ---
-    # Only trigger once per page visit
-    if "autoreply_done" not in st.session_state:
+    # Trigger only if last message is not an auto-reply
+    if not is_last_message_autoreply(st.session_state.conversation):
         with st.spinner("Agent is reviewing your history..."):
             last_user_message = ""
             for msg in reversed(st.session_state.conversation):
@@ -109,14 +121,14 @@ if st.session_state.conversation:
                     break
             prompt = (
                 "Review the previous conversation and send a proactive reply: "
-                "either summarize, continue the last topic, suggest a next step, or connect it to a new idea. "
+                "summarize, continue the last topic, suggest a next step, or connect to a new idea. "
                 f"The last message from the user was: '{last_user_message}'."
             )
             reply = generate_gemini_response(prompt, st.session_state.conversation)
             st.session_state.conversation.append({"role": "assistant", "content": reply})
             save_memory(st.session_state.conversation)
             st.markdown(f"**Agent:** {reply}")
-            st.session_state.autoreply_done = True
+
 else:
     st.info("No previous conversation found. Starting with a greeting.")
     greeting = (
@@ -128,7 +140,6 @@ else:
 
 st.divider()
 
-# --- Chat input widget ---
 def submit_message():
     st.session_state.user_input = st.session_state.user_input_widget
     st.session_state.user_input_widget = ""
@@ -164,5 +175,3 @@ if (send_clicked or st.session_state.user_input) and st.session_state.user_input
     save_memory(st.session_state.conversation)
     st.markdown(f"**Agent:** {reply}")
     st.session_state.user_input = ""
-    # Allow auto-reply on next load
-    st.session_state.autoreply_done = False
