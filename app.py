@@ -3,7 +3,7 @@ import requests
 import json
 import os
 
-# --- Gemini API config ---
+# -- Gemini API Config --
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/"
@@ -32,8 +32,8 @@ def save_memory(memory):
 def generate_gemini_response(user_prompt, conversation):
     contents = []
     system_instruction = (
-        "You are a proactive, helpful AI agent in a Streamlit app. "
-        "Analyze previous conversation and provide a summary, suggestion, or next topic."
+        "You are a proactive, helpful AI agent built for a persistent chat experience in Streamlit. "
+        "Summarize, suggest, or build on the user's last message when possible."
     )
     contents.append({
         "role": "user",
@@ -72,91 +72,50 @@ def generate_gemini_response(user_prompt, conversation):
     except Exception as e:
         return f"Parse error: {e}"
 
-# ----- UI -----
-st.set_page_config(page_title="Gemini 2.5 Flash Agent", page_icon="🤖")
-st.title("Gemini 2.5 Flash – Persistent, Proactive AI Agent")
-
-# Avoid custom CSS for layout – allow Streamlit's default scrolling
+# -- Streamlit UI --
+st.set_page_config(page_title="Gemini Static Chatbot Box", page_icon="💬")
 
 if "conversation" not in st.session_state:
     st.session_state.conversation = load_memory()
 if "user_input" not in st.session_state:
     st.session_state.user_input = ""
-if "user_input_widget" not in st.session_state:
-    st.session_state.user_input_widget = ""
 
-st.caption("Agent reviews prior conversation and sends a context-aware reply. Input always at bottom, page scrolls as chat grows.")
-
-def is_last_message_autoreply(conversation):
-    if not conversation:
-        return False
-    last = conversation[-1]
-    return (last["role"] == "assistant" and 
-            "Now that we have a solid understanding" in last["content"])
-
-# ----- Display chat history -----
-st.subheader("Conversation")
-for msg in st.session_state.conversation:
-    role = msg["role"]
-    content = msg["content"]
-    if role == "user":
-        st.markdown(f"**You:** {content}")
-    else:
-        st.markdown(f"**Agent:** {content}")
-
-# --- Proactive auto-agent on page load ---
-if st.session_state.conversation:
-    if not is_last_message_autoreply(st.session_state.conversation):
-        with st.spinner("Agent is reviewing your history..."):
-            last_user_message = ""
-            for msg in reversed(st.session_state.conversation):
-                if msg["role"] == "user":
-                    last_user_message = msg["content"]
-                    break
-            prompt = (
-                "Review the previous conversation and send a proactive reply: "
-                "summarize, continue the last topic, suggest a next step, or connect to a new idea. "
-                f"The last message from the user was: '{last_user_message}'."
-            )
-            reply = generate_gemini_response(prompt, st.session_state.conversation)
-            st.session_state.conversation.append({"role": "assistant", "content": reply})
-            save_memory(st.session_state.conversation)
-            st.markdown(f"**Agent:** {reply}")
-else:
-    st.info("No previous conversation found. Starting with a greeting.")
-    greeting = (
-        "Hi, welcome! I'll remember our conversation using persistent memory. What would you like to talk about today?"
-    )
-    st.markdown(f"**Agent:** {greeting}")
-    st.session_state.conversation.append({"role": "assistant", "content": greeting})
-    save_memory(st.session_state.conversation)
-
-st.divider()
-
-# --- Auto-scroll to bottom with JS after display (works in most browsers) ---
-st.markdown("""
-    <script>
-        window.scrollTo(0, document.body.scrollHeight);
-    </script>
+# -- Chat History as a Scrollable Box --
+chat_height = 370 # px, tune as you wish
+st.markdown(f"""
+    <style>
+    .chat-history {{height: {chat_height}px; overflow-y: auto; border:1px solid #ddd; border-radius:8px; padding:12px; background:#fafafa; margin-bottom:12px;}}
+    .chat-message {{margin-bottom:8px;}}
+    /* Remove footer padding for bottom-anchored input */
+    .block-container {{ padding-bottom: 10px; }}
+    </style>
 """, unsafe_allow_html=True)
 
-# ----- Chat input box at bottom -----
-def submit_message():
-    st.session_state.user_input = st.session_state.user_input_widget
-    st.session_state.user_input_widget = ""
+st.markdown("<h2 style='margin-bottom:0'>Gemini Chatbot</h2>", unsafe_allow_html=True)
+st.caption("Scroll inside the chat window if the conversation is long. The input box stays at the bottom like a standard chat app.")
 
-st.text_input(
-    "Your message",
-    key="user_input_widget",
-    on_change=submit_message,
-    placeholder="Type your message and press Enter...",
-)
+with st.container():
+    st.markdown("<div class='chat-history'>", unsafe_allow_html=True)
+    for msg in st.session_state.conversation:
+        if msg["role"] == "user":
+            st.markdown(f"<div class='chat-message'><b>You:</b> {msg['content']}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='chat-message'><b>Agent:</b> {msg['content']}</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-col1, col2 = st.columns(2)
-with col1:
-    send_clicked = st.button("Send")
-with col2:
-    clear_clicked = st.button("Clear memory (file + session)")
+# -- Static bottom input and buttons (not inside chat-history div!)
+user_input = st.text_input("Type your message and press Enter...", key="user_input")
+col1, col2 = st.columns([1,1])
+send_clicked = col1.button("Send")
+clear_clicked = col2.button("Clear Conversation")
+
+if send_clicked and user_input.strip():
+    st.session_state.conversation.append({"role": "user", "content": user_input.strip()})
+    reply = generate_gemini_response(user_input.strip(), st.session_state.conversation)
+    st.session_state.conversation.append({"role": "assistant", "content": reply})
+    save_memory(st.session_state.conversation)
+    st.session_state.user_input = ""
+    st.experimental_rerun()  # ensures scroll/bottom anchor refresh
 
 if clear_clicked:
     st.session_state.conversation = []
@@ -165,15 +124,4 @@ if clear_clicked:
             os.remove(MEMORY_FILE)
         except Exception:
             pass
-    st.success("Memory cleared. Reload the page to start fresh.")
-    st.stop()
-
-if (send_clicked or st.session_state.user_input) and st.session_state.user_input.strip():
-    user_msg = st.session_state.user_input.strip()
-    st.session_state.conversation.append({"role": "user", "content": user_msg})
-    with st.spinner("Agent is thinking..."):
-        reply = generate_gemini_response(user_msg, st.session_state.conversation)
-    st.session_state.conversation.append({"role": "assistant", "content": reply})
-    save_memory(st.session_state.conversation)
-    st.markdown(f"**Agent:** {reply}")
-    st.session_state.user_input = ""
+    st.experimental_rerun()
