@@ -3,18 +3,6 @@ import requests
 import json
 import os
 
-# --- Optional: CSS to help input sit at the bottom visually ---
-st.markdown("""
-    <style>
-    .block-container {
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
-        min-height: 80vh;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 # --- Gemini API config ---
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 GEMINI_API_URL = (
@@ -84,9 +72,11 @@ def generate_gemini_response(user_prompt, conversation):
     except Exception as e:
         return f"Parse error: {e}"
 
-# -------- UI --------
+# ----- UI -----
 st.set_page_config(page_title="Gemini 2.5 Flash Agent", page_icon="🤖")
 st.title("Gemini 2.5 Flash – Persistent, Proactive AI Agent")
+
+# Avoid custom CSS for layout – allow Streamlit's default scrolling
 
 if "conversation" not in st.session_state:
     st.session_state.conversation = load_memory()
@@ -95,31 +85,27 @@ if "user_input" not in st.session_state:
 if "user_input_widget" not in st.session_state:
     st.session_state.user_input_widget = ""
 
-st.caption(
-    "Your agent auto-reviews prior conversation and sends proactive, related replies each time you enter or reload – with chat input at the bottom."
-)
+st.caption("Agent reviews prior conversation and sends a context-aware reply. Input always at bottom, page scrolls as chat grows.")
 
-# --- Display previous chat ---
 def is_last_message_autoreply(conversation):
     if not conversation:
         return False
     last = conversation[-1]
-    # Optionally, use your own signature here (e.g. by prefix, or content analysis)
-    # Here, we check if last agent message contains this phrase:
     return (last["role"] == "assistant" and 
             "Now that we have a solid understanding" in last["content"])
 
-if st.session_state.conversation:
-    st.subheader("Previous conversation")
-    for msg in st.session_state.conversation:
-        role = msg["role"]
-        content = msg["content"]
-        if role == "user":
-            st.markdown(f"**You:** {content}")
-        else:
-            st.markdown(f"**Agent:** {content}")
+# ----- Display chat history -----
+st.subheader("Conversation")
+for msg in st.session_state.conversation:
+    role = msg["role"]
+    content = msg["content"]
+    if role == "user":
+        st.markdown(f"**You:** {content}")
+    else:
+        st.markdown(f"**Agent:** {content}")
 
-    # Trigger only if last message is not an auto-reply
+# --- Proactive auto-agent on page load ---
+if st.session_state.conversation:
     if not is_last_message_autoreply(st.session_state.conversation):
         with st.spinner("Agent is reviewing your history..."):
             last_user_message = ""
@@ -136,7 +122,6 @@ if st.session_state.conversation:
             st.session_state.conversation.append({"role": "assistant", "content": reply})
             save_memory(st.session_state.conversation)
             st.markdown(f"**Agent:** {reply}")
-
 else:
     st.info("No previous conversation found. Starting with a greeting.")
     greeting = (
@@ -148,42 +133,47 @@ else:
 
 st.divider()
 
-# ------- CHAT INPUT AT PAGE BOTTOM -------
-chat_container = st.container()
-with chat_container:
-    def submit_message():
-        st.session_state.user_input = st.session_state.user_input_widget
-        st.session_state.user_input_widget = ""
+# --- Auto-scroll to bottom with JS after display (works in most browsers) ---
+st.markdown("""
+    <script>
+        window.scrollTo(0, document.body.scrollHeight);
+    </script>
+""", unsafe_allow_html=True)
 
-    st.text_input(
-        "Your message",
-        key="user_input_widget",
-        on_change=submit_message,
-        placeholder="Type your message and press Enter...",
-    )
+# ----- Chat input box at bottom -----
+def submit_message():
+    st.session_state.user_input = st.session_state.user_input_widget
+    st.session_state.user_input_widget = ""
 
-    col1, col2 = st.columns(2)
-    with col1:
-        send_clicked = st.button("Send")
-    with col2:
-        clear_clicked = st.button("Clear memory (file + session)")
+st.text_input(
+    "Your message",
+    key="user_input_widget",
+    on_change=submit_message,
+    placeholder="Type your message and press Enter...",
+)
 
-    if clear_clicked:
-        st.session_state.conversation = []
-        if os.path.exists(MEMORY_FILE):
-            try:
-                os.remove(MEMORY_FILE)
-            except Exception:
-                pass
-        st.success("Memory cleared. Reload the page to start fresh.")
-        st.stop()
+col1, col2 = st.columns(2)
+with col1:
+    send_clicked = st.button("Send")
+with col2:
+    clear_clicked = st.button("Clear memory (file + session)")
 
-    if (send_clicked or st.session_state.user_input) and st.session_state.user_input.strip():
-        user_msg = st.session_state.user_input.strip()
-        st.session_state.conversation.append({"role": "user", "content": user_msg})
-        with st.spinner("Agent is thinking..."):
-            reply = generate_gemini_response(user_msg, st.session_state.conversation)
-        st.session_state.conversation.append({"role": "assistant", "content": reply})
-        save_memory(st.session_state.conversation)
-        st.markdown(f"**Agent:** {reply}")
-        st.session_state.user_input = ""
+if clear_clicked:
+    st.session_state.conversation = []
+    if os.path.exists(MEMORY_FILE):
+        try:
+            os.remove(MEMORY_FILE)
+        except Exception:
+            pass
+    st.success("Memory cleared. Reload the page to start fresh.")
+    st.stop()
+
+if (send_clicked or st.session_state.user_input) and st.session_state.user_input.strip():
+    user_msg = st.session_state.user_input.strip()
+    st.session_state.conversation.append({"role": "user", "content": user_msg})
+    with st.spinner("Agent is thinking..."):
+        reply = generate_gemini_response(user_msg, st.session_state.conversation)
+    st.session_state.conversation.append({"role": "assistant", "content": reply})
+    save_memory(st.session_state.conversation)
+    st.markdown(f"**Agent:** {reply}")
+    st.session_state.user_input = ""
